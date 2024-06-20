@@ -1,4 +1,5 @@
 """
+This script is for the cluster!
 This script takes a folder path of NDVI tifs  as input.
 The NDVI tifs are processed pixelwise to determine the start of season (sos) and end of season (eos) of the vegetation.
 
