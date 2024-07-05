@@ -35,6 +35,15 @@ def load_ndvi_stack(directory, filter_threshold=THRESHOLD_):
     # TODO: shouldn't the first dataset below the threshold be taken into consideration?
 
     file_paths = sorted([os.path.join(directory, fp) for fp in os.listdir(directory) if fp.endswith('.tif')])
+    
+    def sort_by_doy(file_paths):
+        fps = np.array(file_paths)
+        fp_doys = np.array([os.path.basename(fp).split('_')[-2].split('.')[0] for fp in fps])
+        sorted_indices = np.argsort(fp_doys)
+        return fps[sorted_indices]
+    
+    file_paths = sort_by_doy(file_paths)
+    
     doys = np.array([int(os.path.basename(fp).split('_')[-2].split('.')[0]) for fp in file_paths], dtype=np.int64)
     
     if filter_threshold is not None:
