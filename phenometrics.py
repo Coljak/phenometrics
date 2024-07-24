@@ -294,7 +294,19 @@ def process_stack(input_dir):
     num_keys = 12
     sos_eos_data = np.full((num_rows, num_cols, num_keys),np.nan, dtype=np.float32)
 
-
+    def split_path(path):
+        folders = []
+        while True:
+            path, folder = os.path.split(path)
+            if folder:
+                folders.append(folder)
+            else:
+                if path:
+                    folders.append(path)
+                break
+        return folders
+    
+    folders = split_path(input_dir)
     
     for row in range(num_rows):
         for col in range(num_cols):
@@ -329,7 +341,7 @@ def process_stack(input_dir):
 
     output_dir = make_directory(input_dir)
 
-    save_geotiff(sos_eos_data[:, :, 0], meta, os.path.join(output_dir, 'max_ndvi_doy.tif'))
+    save_geotiff(sos_eos_data[:, :, 0], meta, os.path.join(output_dir, f'{folders[0]}_max_ndvi_doy.tif'))
     save_geotiff(sos_eos_data[:, :, 1], meta, os.path.join(output_dir, 'max_ndvi_value.tif'))
     save_geotiff(sos_eos_data[:, :, 2], meta, os.path.join(output_dir, 'sos_first_of_slope.tif'))
     save_geotiff(sos_eos_data[:, :, 3], meta, os.path.join(output_dir, 'sos_median_of_slope.tif'))
