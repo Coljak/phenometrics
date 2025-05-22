@@ -19,9 +19,10 @@ from datetime import datetime
 # from affine import Affine
 
 # Constants
-SMOOTH = 0.05
+SMOOTH = 0.001
 THRESHOLD_ = 90 # can be set to None
 THRESH_END = 250
+MIN_DOY_PEAK_SEARCH = 150
 MAX_WORKERS = 50
 CHUNK_SIZE = 1000
 
@@ -69,25 +70,30 @@ def load_ndvi_stack(directory, filter_threshold=THRESHOLD_):
     valid_image_area_mask = ~np.any(mask_stack, axis=0)
     if len(doys) < 3:
         raise ValueError(f'Not enough images in the stack (less than 3!) in directory {directory} with threshold {filter_threshold}')
+        
     
     return ndvi_stack, doys, valid_image_area_mask, meta
 
-def find_max(doys, ndvi_values, THRESH_END):
-    mask = doys <= THRESH_END
+def find_max(doys, fitted_ndvi_values):
+    """
+    The values before June are excluded from the search for a max NDVI value, the doy and the MAX NDVI value are returned.
+    """
+    mask = (doys <= THRESH_END) & (doys > MIN_DOY_PEAK_SEARCH)
     filtered_doys = doys[mask]
-    filtered_ndvi_values = ndvi_values[mask]
+    filtered_ndvi_values = fitted_ndvi_values[mask]
     max_index = np.argmax(filtered_ndvi_values)
     return filtered_doys[max_index], filtered_ndvi_values[max_index]
 
-def filter_to_range_between_minima(fine_doys, b_spline, max_ndvi_doy):
+
+def filter_to_range_between_minima(fine_doys, fitted_ndvi_values, max_ndvi_doy):
     mask_sos = fine_doys < max_ndvi_doy
     mask_eos = fine_doys > max_ndvi_doy
     
     filtered_doys_sos = fine_doys[mask_sos]
-    filtered_b_spline_sos = b_spline[mask_sos]
+    filtered_b_spline_sos = fitted_ndvi_values[mask_sos]
     
     filtered_doys_eos = fine_doys[mask_eos]
-    filtered_b_spline_eos = b_spline[mask_eos]
+    filtered_b_spline_eos = fitted_ndvi_values[mask_eos]
     
     # indices of minimum NDVI values on both sides of max_ndvi_doy
     index_sos = np.argmin(filtered_b_spline_sos)
@@ -98,44 +104,69 @@ def filter_to_range_between_minima(fine_doys, b_spline, max_ndvi_doy):
     original_index_eos = np.where(fine_doys == filtered_doys_eos[index_eos])[0][0]
     
     # subsets of fine_doys and b_spline between the two NDVI minima
-    b_spline_new = b_spline[original_index_sos:(original_index_eos+1)]
-    fine_doys_new = fine_doys[original_index_sos:(original_index_eos+1)]
+    b_spline_min_to_min = fitted_ndvi_values[original_index_sos:(original_index_eos+1)]
+    fine_doys_min_to_min = fine_doys[original_index_sos:(original_index_eos+1)]
     
     
-    return fine_doys_new, b_spline_new
+    return fine_doys_min_to_min, b_spline_min_to_min
 
-def fit_linear_regression(fine_doys, b_spline, max_ndvi_doy):
-    left_indices = fine_doys < max_ndvi_doy
-    right_indices = fine_doys > max_ndvi_doy
+# def fit_linear_regression(fine_doys, b_spline, max_ndvi_doy):
+#     left_indices = fine_doys < max_ndvi_doy
+#     right_indices = fine_doys > max_ndvi_doy
 
-    left_model = LinearRegression().fit(fine_doys[left_indices].reshape(-1, 1), b_spline[left_indices]) if np.any(left_indices) else None
-    right_model = LinearRegression().fit(fine_doys[right_indices].reshape(-1, 1), b_spline[right_indices]) if np.any(right_indices) else None
+#     left_model = LinearRegression().fit(fine_doys[left_indices].reshape(-1, 1), b_spline[left_indices]) if np.any(left_indices) else None
+#     right_model = LinearRegression().fit(fine_doys[right_indices].reshape(-1, 1), b_spline[right_indices]) if np.any(right_indices) else None
     
-    return left_model, right_model
+#     return left_model, right_model
 
-def calculate_base(left_model, right_model):
-    if left_model is not None and right_model is not None:
-        return (left_model.coef_[0] + right_model.coef_[0]) / 2.0
-    else:
-        return np.nan
+# def calculate_base(left_model, right_model):
+#     if left_model is not None and right_model is not None:
+#         # the slopes are averaged
+#         return (left_model.coef_[0] + right_model.coef_[0]) / 2.0
+#     else:
+#         return np.nan
     
 def calculate_relative_amplitude(ndvi_values):
     return np.percentile(ndvi_values, 90) - np.percentile(ndvi_values, 10)
 
 
-def calculate_sos_eos(fine_doys, b_spline, base, amplitude, max_ndvi_doy, max_ndvi_value, overall_relative_amplitude):
+def calculate_sos_eos(fine_doys, fitted_ndvi_values):
     """
     Calculations are split into sos - start of season and eos - end of season.
     Those timeranges are defined by the maximum NDVI value in the seaseon.
     """
-# def calculate_sos_eos(fine_doys, b_spline, base, amplitude, max_ndvi_doy):    
-    # b_spline = BSpline(*tck)(fine_doys)
+    # POS, Peak of Season 
+    max_ndvi_doy, max_ndvi_value = find_max(fine_doys, fitted_ndvi_values)
+    filter_to_range_between_minima(fine_doys, fitted_ndvi_values, max_ndvi_doy)
+
     sos_mask = fine_doys < max_ndvi_doy
     eos_mask = fine_doys > max_ndvi_doy
     sos_doys = fine_doys[sos_mask]
     eos_doys = fine_doys[eos_mask]
-    sos_ndvi_values = b_spline[sos_mask]
-    eos_ndvi_values = b_spline[eos_mask]
+    sos_ndvi_values = fitted_ndvi_values[sos_mask]
+    eos_ndvi_values = fitted_ndvi_values[eos_mask]
+
+    # BSE (Base) or in case of only one value it is the VOS (Valley of Season)
+    mins = 0
+    div = 2
+    if len(sos_ndvi_values) > 0:
+        mins += min(sos_ndvi_values) 
+    else:
+         div = div - 1
+
+    if len(eos_ndvi_values) > 0:
+        mins += min(eos_ndvi_values)
+    else:
+        div = div - 1
+    base = mins / div
+
+
+    # AOS Amplitude of Season ( POS value - BSE or POS Value - VOS)
+    amplitude = max_ndvi_value - base
+
+    # TODO this must actually be b_spline and not ndvi_values
+    # overall_relative_amplitude = calculate_relative_amplitude(ndvi_values)
+    overall_relative_amplitude = calculate_relative_amplitude(fitted_ndvi_values)
 
     seasonal_amplitude = base + 0.25 * amplitude 
     
@@ -229,6 +260,8 @@ def calculate_sos_eos(fine_doys, b_spline, base, amplitude, max_ndvi_doy, max_nd
         relative_amplitude_doy_eos_old = np.nan
     
     return {
+        'max_ndvi_doy': max_ndvi_doy, 
+        'max_ndvi_value': max_ndvi_value,
         'sos_first_of_slope': first_of_slope10_sos2, 
         'sos_median_of_slope': median_of_slope_sos, 
         'sos_seasonal_amplitude': seasonal_amplitude_doy_sos, 
@@ -239,6 +272,16 @@ def calculate_sos_eos(fine_doys, b_spline, base, amplitude, max_ndvi_doy, max_nd
         'eos_seasonal_amplitude': seasonal_amplitude_doy_eos,
         'eos_relative_amplitude': relative_amplitude_doy_eos,
         'eos_relative_amplitude_old': relative_amplitude_doy_eos_old,
+        # extras for pixel out
+        'seasonal_amplitude': seasonal_amplitude,
+        'fine_doys': fine_doys,
+        'sos_doys': sos_doys,
+        'sos_ndvi_values': sos_ndvi_values,
+        'eos_doys': eos_doys,
+        'eos_ndvi_values': eos_ndvi_values,
+        'base': base, 
+        'overall_relative_amplitude': overall_relative_amplitude,
+
     }
 
 
@@ -249,7 +292,7 @@ def process_pixel(row, col, ndvi_values, doys, num_cols):
     3. the overall relative amplitude is determined
     4. The result for one pixel is completed with the values from sos_eos_calculate    
     """
-    print('process_pixel ', row, col)
+ 
 
     # if there are invalid values, they are taken out of the ndvi_values and doys
     isnan_mask = np.isnan(ndvi_values)
@@ -257,23 +300,37 @@ def process_pixel(row, col, ndvi_values, doys, num_cols):
         ndvi_values = ndvi_values[~isnan_mask]
         doys = doys[~isnan_mask]
 
+
+    # ndvi_mean = np.mean(ndvi_values)
+    # start_index = 0
+    # for i in (0, len(ndvi_values) - 1):
+    #     if ndvi_values[i] > ndvi_mean:
+    #         start_index += 1
+    #     else:
+    #         break
+    # ndvi_values = ndvi_values[start_index:]
+    # doys = doys[start_index:]
+
     # create an array with all doys in the timerange
     min_doy, max_doy = min(doys), max(doys)
     fine_doys = np.linspace(min_doy, max_doy, max_doy - min_doy + 1, dtype=int)
 
+    #clean NDVI values from initial high outliers
+    
+
     tck_spline = splrep(doys, ndvi_values, s=SMOOTH)
-    b_spline = BSpline(*tck_spline)(fine_doys)
+    fitted_ndvi_values = BSpline(*tck_spline)(fine_doys)
 
-    max_ndvi_doy, max_ndvi_value = find_max(fine_doys, b_spline, THRESH_END)
-    left_model, right_model = fit_linear_regression(fine_doys, b_spline, max_ndvi_doy)
-    base = calculate_base(left_model, right_model)
-    amplitude = max_ndvi_value - base
+    
 
-    overall_relative_amplitude = calculate_relative_amplitude(ndvi_values)
+    sos_eos_dict = calculate_sos_eos(fine_doys,  fitted_ndvi_values)
 
-    sos_eos_dict = calculate_sos_eos(fine_doys,  b_spline, base, amplitude, max_ndvi_doy, max_ndvi_value, overall_relative_amplitude)
+    sos_eos_dict.update({
+        'pixel_idx': row * num_cols + col,
+        # for plot and Analysis
+        ''
 
-    sos_eos_dict.update({'pixel_idx': row * num_cols + col, 'max_ndvi_doy': max_ndvi_doy, 'max_ndvi_value': max_ndvi_value})
+        })
 
     return sos_eos_dict
 
@@ -341,7 +398,7 @@ def process_stack(input_dir):
 
     output_dir = make_directory(input_dir)
 
-    save_geotiff(sos_eos_data[:, :, 0], meta, os.path.join(output_dir, f'{folders[0]}_max_ndvi_doy.tif'))
+    save_geotiff(sos_eos_data[:, :, 0], meta, os.path.join(output_dir, 'max_ndvi_doy.tif'))
     save_geotiff(sos_eos_data[:, :, 1], meta, os.path.join(output_dir, 'max_ndvi_value.tif'))
     save_geotiff(sos_eos_data[:, :, 2], meta, os.path.join(output_dir, 'sos_first_of_slope.tif'))
     save_geotiff(sos_eos_data[:, :, 3], meta, os.path.join(output_dir, 'sos_median_of_slope.tif'))
@@ -387,6 +444,8 @@ def save_geotiff(data, meta, file_path):
     """
     The metadata of the saved tiff is taken from an input tif.
     """
+
+    print('writing ', file_path)
     meta.update(dtype=rasterio.float32, count=1)
     with rasterio.open(file_path, 'w', **meta) as dst:
         dst.write(data.astype(rasterio.float32), 1)
@@ -400,7 +459,7 @@ def main(input_dir):
     try:
         path_list = find_folder_paths(input_dir)
     except:
-        print(f'Error: no valid path found in {input_dir} (/clip needs to be the folder containing the tifs).')
+        print(f'Error: no valid path found in {input_dir} (it needs to be the folder containing the tifs).')
         return
         
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -419,8 +478,9 @@ if __name__ == '__main__':
     Replace input _dir with the relative or absolute path to either one folder with tif images OR the top level folder that contains all folders with .tif images.
     Only folders containing valid images will be processed.
     """
-    input_dir = './S2_clip/'
-
+    # input_dir = './S2_clip/'
+    input_dir = '/home/colja/01_Code/36_Magdalena_git/phenometrics/S2_clip_new/'
+    
     start = datetime.now()
     main(input_dir)
     print(f'Time taken for directory {input_dir}: {datetime.now() - start}.')
