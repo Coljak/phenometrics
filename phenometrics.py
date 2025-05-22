@@ -273,6 +273,9 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
         'eos_relative_amplitude': relative_amplitude_doy_eos,
         'eos_relative_amplitude_old': relative_amplitude_doy_eos_old,
         # extras for pixel out
+        'smooth': SMOOTH,
+        'threshold_start': THRESHOLD_,
+        'threshold_end': THRESH_END,
         'seasonal_amplitude': seasonal_amplitude,
         'fine_doys': fine_doys,
         'sos_doys': sos_doys,
@@ -328,7 +331,9 @@ def process_pixel(row, col, ndvi_values, doys, num_cols):
     sos_eos_dict.update({
         'pixel_idx': row * num_cols + col,
         # for plot and Analysis
-        ''
+        'smooth': SMOOTH,
+        'threshold_start': THRESHOLD_,
+        'threshold_end': THRESH_END,
 
         })
 
