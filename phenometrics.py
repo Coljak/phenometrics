@@ -109,6 +109,13 @@ def calculate_relative_amplitude_mean(ndvi_values):
     ndvi_values = ndvi_values[(ndvi_values < np.percentile(ndvi_values, 90)) & (ndvi_values > np.percentile(ndvi_values, 10))]
     return ndvi_values.mean()
 
+def find_day_of_value(doys, values, value):
+    diffs = values - value
+    doy_idx = np.argmin(np.abs(diffs))
+    doy = doys[doy_idx]
+        
+    return doy, doy_idx
+
 
 def calculate_sos_eos(fine_doys, fitted_ndvi_values):
     """
@@ -141,7 +148,7 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
     
     # subsets of fine_doys and b_spline between the two NDVI minima
     fitted_ndvi_min_to_min = fitted_ndvi_values[original_index_sos:(original_index_eos+1)]
-    fine_doys_min_to_min = fine_doys[original_index_sos:(original_index_eos+1)]
+    doys_min_to_min = fine_doys[original_index_sos:(original_index_eos+1)]
 
 
     # BSE (Base) or in case of only one value it is the VOS (Valley of Season)
@@ -170,10 +177,14 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
     # overall_relative_amplitude = calculate_relative_amplitude(fitted_ndvi_values)
     overall_relative_amplitude = calculate_relative_amplitude(fitted_ndvi_min_to_min)
-    relative_amplitude_mean = calculate_relative_amplitude_mean(fitted_ndvi_min_to_min)
     sos_relative_amplitude = base + .25 * overall_relative_amplitude
     eos_relative_amplitude = base + .15 * overall_relative_amplitude
-    
+
+    relative_amplitude_mean = calculate_relative_amplitude_mean(fitted_ndvi_min_to_min)
+    sos_relative_amplitude_mean = base + .25 * relative_amplitude_mean
+    eos_relative_amplitude_mean = base + .15 * relative_amplitude_mean
+    sos_relative_amplitude_mean_doy, _ = find_day_of_value(sos_from_min_doys, sos_from_min_ndvi, sos_relative_amplitude_mean)
+    eos_relative_amplitude_mean_doy, _ = find_day_of_value(eos_to_min_doys, eos_to_min_ndvi, eos_relative_amplitude_mean)
     # SoS calculations
     if len(sos_from_min_ndvi) > 0:
         sos_min_value = np.min(sos_from_min_ndvi)
@@ -194,21 +205,9 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
          
         seasonal_amplitude_doy_sos = sos_from_min_doys[np.argmin(np.abs(sos_from_min_ndvi - sos_seasonal_amplitude))]
         
-        relative_amplitude_sos_old = calculate_relative_amplitude(sos_ndvi_values)
-        relative_amplitude_doy_sos_old_idx = np.argmin(np.abs(sos_ndvi_values - relative_amplitude_sos_old))
-        relative_amplitude_doy_sos_old = sos_doys[relative_amplitude_doy_sos_old_idx]
-        if relative_amplitude_doy_sos_old_idx == 0:
-            relative_amplitude_doy_sos_old = np.nan
 
-
-        # relative to the overall amplitude
+        relative_amplitude_doy_sos, _ = find_day_of_value(sos_from_min_doys, sos_from_min_ndvi, overall_relative_amplitude)
         
-        dists_from_relative_amplitude = abs(sos_from_min_ndvi - overall_relative_amplitude)
-        idx_relative_amplitude = np.argmin(dists_from_relative_amplitude)
-        if idx_relative_amplitude > 0:
-            relative_amplitude_doy_sos = sos_from_min_doys[idx_relative_amplitude]
-        else:
-            relative_amplitude_doy_sos = np.nan
 
     else:
         # first_of_slope10_sos = np.nan
@@ -216,7 +215,6 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
         median_of_slope_sos = np.nan
         seasonal_amplitude_doy_sos = np.nan
         relative_amplitude_doy_sos = np.nan
-        relative_amplitude_doy_sos_old = np.nan
 
     # EoS calculations
     if len(eos_to_min_ndvi) > 0:
@@ -240,12 +238,6 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
         
         seasonal_amplitude_doy_eos = eos_to_min_doys[np.argmin(np.abs(eos_to_min_ndvi - eos_seasonal_amplitude))]
         
-        # old relative amplitude
-        relative_amplitude_eos_old = calculate_relative_amplitude(eos_ndvi_values)
-        relative_amplitude_eos_old_idx = np.argmin(np.abs(eos_ndvi_values - relative_amplitude_eos_old))
-        relative_amplitude_doy_eos_old = eos_doys[relative_amplitude_eos_old_idx]
-        if relative_amplitude_eos_old_idx == 0:
-            relative_amplitude_doy_eos_old = np.nan
 
         # relative to the overall amplitude
         dists_from_relative_amplitude = abs(eos_to_min_ndvi - overall_relative_amplitude)  
@@ -268,12 +260,13 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
         'sos_median_of_slope': median_of_slope_sos, 
         'sos_seasonal_amplitude': seasonal_amplitude_doy_sos, 
         'sos_relative_amplitude': relative_amplitude_doy_sos,
-        'sos_relative_amplitude_old': relative_amplitude_doy_sos_old,
+        'sos_relative_amplitude_mean': sos_relative_amplitude_mean_doy,
         'eos_first_of_slope': first_of_slope10_eos2,
         'eos_median_of_slope': median_of_slope_eos,
         'eos_seasonal_amplitude': seasonal_amplitude_doy_eos,
         'eos_relative_amplitude': relative_amplitude_doy_eos,
-        'eos_relative_amplitude_old': relative_amplitude_doy_eos_old,
+        'eos_relative_amplitude_mean': eos_relative_amplitude_mean_doy,
+
         # extras for pixel out
         'smooth': SMOOTH,
         'threshold_start': THRESHOLD_,
@@ -288,9 +281,11 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
         'eos_ndvi_values': eos_ndvi_values,
         'base': base, 
         'overall_relative_amplitude': overall_relative_amplitude,
-        'relative_amplitude_mean': relative_amplitude_mean,
+        'relative_amplitude_mean_ndvi': relative_amplitude_mean,
         'sos_relative_amplitude_ndvi': sos_relative_amplitude,
         'eos_relative_amplitude_ndvi': eos_relative_amplitude,
+        'sos_relative_amplitude_mean_ndvi': sos_relative_amplitude_mean,
+        'eos_relative_amplitude_mean_ndvi': eos_relative_amplitude_mean,
 
     }
 
@@ -389,12 +384,12 @@ def process_stack(input_dir):
                 sos_eos_data[row, col, 3] = sos_eos_dict['sos_median_of_slope']
                 sos_eos_data[row, col, 4] = sos_eos_dict['sos_seasonal_amplitude']
                 sos_eos_data[row, col, 5] = sos_eos_dict['sos_relative_amplitude']
-                sos_eos_data[row, col, 6] = sos_eos_dict['sos_relative_amplitude_old']
+                sos_eos_data[row, col, 6] = sos_eos_dict['sos_relative_amplitude_mean']
                 sos_eos_data[row, col, 7] = sos_eos_dict['eos_first_of_slope']
                 sos_eos_data[row, col, 8] = sos_eos_dict['eos_median_of_slope']
                 sos_eos_data[row, col, 9] = sos_eos_dict['eos_seasonal_amplitude']
                 sos_eos_data[row, col, 10] = sos_eos_dict['eos_relative_amplitude']
-                sos_eos_data[row, col, 11] = sos_eos_dict['eos_relative_amplitude_old']
+                sos_eos_data[row, col, 11] = sos_eos_dict['eos_relative_amplitude_mean']
 
     
     # An output folder is created at the same level as the input_dir. The output folder is named e.g. 2024-11-06_output.
@@ -416,12 +411,12 @@ def process_stack(input_dir):
     save_geotiff(sos_eos_data[:, :, 3], meta, os.path.join(output_dir, 'sos_median_of_slope.tif'))
     save_geotiff(sos_eos_data[:, :, 4], meta, os.path.join(output_dir, 'sos_seasonal_amplitude.tif'))
     save_geotiff(sos_eos_data[:, :, 5], meta, os.path.join(output_dir, 'sos_relative_amplitude.tif'))
-    save_geotiff(sos_eos_data[:, :, 6], meta, os.path.join(output_dir, 'sos_relative_amplitude_old.tif'))
+    save_geotiff(sos_eos_data[:, :, 6], meta, os.path.join(output_dir, 'sos_relative_amplitude_mean.tif'))
     save_geotiff(sos_eos_data[:, :, 7], meta, os.path.join(output_dir, 'eos_first_of_slope.tif'))
     save_geotiff(sos_eos_data[:, :, 8], meta, os.path.join(output_dir, 'eos_median_of_slope.tif'))
     save_geotiff(sos_eos_data[:, :, 9], meta, os.path.join(output_dir, 'eos_seasonal_amplitude.tif'))
     save_geotiff(sos_eos_data[:, :, 10], meta, os.path.join(output_dir, 'eos_relative_amplitude.tif'))
-    save_geotiff(sos_eos_data[:, :, 11], meta, os.path.join(output_dir, 'eos_relative_amplitude_old.tif'))
+    save_geotiff(sos_eos_data[:, :, 11], meta, os.path.join(output_dir, 'eos_relative_amplitude_mean.tif'))
 
 
     print(f'Processing {input_dir} took', datetime.now() - start)
