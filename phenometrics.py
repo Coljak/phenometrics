@@ -85,46 +85,22 @@ def find_max(doys, fitted_ndvi_values):
     return filtered_doys[max_index], filtered_ndvi_values[max_index]
 
 
-def filter_to_range_between_minima(fine_doys, fitted_ndvi_values, max_ndvi_doy):
-    mask_sos = fine_doys < max_ndvi_doy
-    mask_eos = fine_doys > max_ndvi_doy
-    
-    filtered_doys_sos = fine_doys[mask_sos]
-    filtered_b_spline_sos = fitted_ndvi_values[mask_sos]
-    
-    filtered_doys_eos = fine_doys[mask_eos]
-    filtered_b_spline_eos = fitted_ndvi_values[mask_eos]
+def filter_to_range_between_minima(fine_doys, fitted_ndvi_values, sos_doys, sos_ndvi_values, eos_doys, eos_ndvi_values):
     
     # indices of minimum NDVI values on both sides of max_ndvi_doy
-    index_sos = np.argmin(filtered_b_spline_sos)
-    index_eos = np.argmin(filtered_b_spline_eos)
+    index_min_sos = np.argmin(sos_ndvi_values)
+    index_min_eos = np.argmin(eos_ndvi_values)
     
     # Convert these indices back to the original indices
-    original_index_sos = np.where(fine_doys == filtered_doys_sos[index_sos])[0][0]
-    original_index_eos = np.where(fine_doys == filtered_doys_eos[index_eos])[0][0]
+    original_index_sos = np.where(fine_doys == sos_doys[index_min_sos])[0][0]
+    original_index_eos = np.where(fine_doys == eos_doys[index_min_eos])[0][0]
     
     # subsets of fine_doys and b_spline between the two NDVI minima
-    b_spline_min_to_min = fitted_ndvi_values[original_index_sos:(original_index_eos+1)]
+    fitted_ndvi_min_to_min = fitted_ndvi_values[original_index_sos:(original_index_eos+1)]
     fine_doys_min_to_min = fine_doys[original_index_sos:(original_index_eos+1)]
     
-    
-    return fine_doys_min_to_min, b_spline_min_to_min
+    return fine_doys_min_to_min, fitted_ndvi_min_to_min
 
-# def fit_linear_regression(fine_doys, b_spline, max_ndvi_doy):
-#     left_indices = fine_doys < max_ndvi_doy
-#     right_indices = fine_doys > max_ndvi_doy
-
-#     left_model = LinearRegression().fit(fine_doys[left_indices].reshape(-1, 1), b_spline[left_indices]) if np.any(left_indices) else None
-#     right_model = LinearRegression().fit(fine_doys[right_indices].reshape(-1, 1), b_spline[right_indices]) if np.any(right_indices) else None
-    
-#     return left_model, right_model
-
-# def calculate_base(left_model, right_model):
-#     if left_model is not None and right_model is not None:
-#         # the slopes are averaged
-#         return (left_model.coef_[0] + right_model.coef_[0]) / 2.0
-#     else:
-#         return np.nan
     
 def calculate_relative_amplitude(ndvi_values):
     return np.percentile(ndvi_values, 90) - np.percentile(ndvi_values, 10)
@@ -137,14 +113,32 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
     """
     # POS, Peak of Season 
     max_ndvi_doy, max_ndvi_value = find_max(fine_doys, fitted_ndvi_values)
-    filter_to_range_between_minima(fine_doys, fitted_ndvi_values, max_ndvi_doy)
-
+    
     sos_mask = fine_doys < max_ndvi_doy
     eos_mask = fine_doys > max_ndvi_doy
     sos_doys = fine_doys[sos_mask]
     eos_doys = fine_doys[eos_mask]
     sos_ndvi_values = fitted_ndvi_values[sos_mask]
     eos_ndvi_values = fitted_ndvi_values[eos_mask]
+
+    # find the days and values between the two minima
+    index_min_sos = np.argmin(sos_ndvi_values)
+    index_min_eos = np.argmin(eos_ndvi_values)
+
+    sos_min_doy = sos_doys[index_min_sos]
+    sos_from_min_doys = sos_doys[index_min_sos:]
+    sos_from_min_ndvi = sos_ndvi_values[index_min_sos:]
+    eos_min_doy = eos_doys[index_min_eos]
+    eos_to_min_doys = eos_doys[:(index_min_eos + 1)]
+    eos_to_min_ndvi = eos_ndvi_values[:(index_min_eos + 1)]
+    # Convert these indices back to the original indices
+    original_index_sos = np.where(fine_doys == sos_min_doy)[0][0]
+    original_index_eos = np.where(fine_doys == eos_min_doy)[0][0]
+    
+    # subsets of fine_doys and b_spline between the two NDVI minima
+    fitted_ndvi_min_to_min = fitted_ndvi_values[original_index_sos:(original_index_eos+1)]
+    fine_doys_min_to_min = fine_doys[original_index_sos:(original_index_eos+1)]
+
 
     # BSE (Base) or in case of only one value it is the VOS (Valley of Season)
     mins = 0
@@ -163,34 +157,37 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
 
     # AOS Amplitude of Season ( POS value - BSE or POS Value - VOS)
     amplitude = max_ndvi_value - base
+    sos_seasonal_amplitude = base + 0.25 * amplitude 
+    eos_seasonal_amplitude = base + 0.15 * amplitude 
+
 
     # TODO this must actually be b_spline and not ndvi_values
     # overall_relative_amplitude = calculate_relative_amplitude(ndvi_values)
-    overall_relative_amplitude = calculate_relative_amplitude(fitted_ndvi_values)
-
-    seasonal_amplitude = base + 0.25 * amplitude 
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
+    # overall_relative_amplitude = calculate_relative_amplitude(fitted_ndvi_values)
+    overall_relative_amplitude = calculate_relative_amplitude(fitted_ndvi_min_to_min)
+    sos_relative_amplitude = base + .25 * overall_relative_amplitude
+    eos_relative_amplitude = base + .15 * overall_relative_amplitude
     
     # SoS calculations
-    if len(sos_ndvi_values) > 0:
-        sos_min_value = np.min(sos_ndvi_values)
+    if len(sos_from_min_ndvi) > 0:
+        sos_min_value = np.min(sos_from_min_ndvi)
         threshold_sos = sos_min_value + 0.1 * (max_ndvi_value - sos_min_value)
-        #TODO Genaugenommen müsste hier der np.abs wegfallen, weil ABOVE thrs
-        # JETZT ERSETZT DURCH first_of_slope10_sos2
-        # first_of_slope10_sos = sos_doys[np.argmin(np.abs(sos_ndvi_values - threshold_sos))]
         
-        sos_diff = sos_ndvi_values - threshold_sos
+        sos_diff = sos_from_min_ndvi - threshold_sos
         positive_sos_diff = sos_diff[sos_diff > 0]
         if len(positive_sos_diff) > 0:
         # TODO delete this or first_of-slope10_sos
-            first_of_slope10_sos2 = sos_doys[sos_diff > 0][np.argmin(sos_diff[sos_diff > 0])]
+            first_of_slope10_sos2 = sos_from_min_doys[sos_diff > 0][np.argmin(sos_diff[sos_diff > 0])]
         else:
             first_of_slope10_sos2 = np.nan
             print(f'Pixel first_of_slope10_sos2 is nan')
         
-        median_ndvi_sos = np.median(sos_ndvi_values)
-        median_of_slope_sos = sos_doys[np.argmin(np.abs(sos_ndvi_values - median_ndvi_sos))] 
+        #TODO this is probably significantly different since now it is only the range from min to max
+        median_ndvi_sos = np.median(sos_from_min_ndvi)
+        median_of_slope_sos = sos_from_min_doys[np.argmin(np.abs(sos_from_min_ndvi - median_ndvi_sos))] 
          
-        seasonal_amplitude_doy_sos = sos_doys[np.argmin(np.abs(sos_ndvi_values - seasonal_amplitude))]
+        seasonal_amplitude_doy_sos = sos_from_min_doys[np.argmin(np.abs(sos_from_min_ndvi - sos_seasonal_amplitude))]
         
         relative_amplitude_sos_old = calculate_relative_amplitude(sos_ndvi_values)
         relative_amplitude_doy_sos_old_idx = np.argmin(np.abs(sos_ndvi_values - relative_amplitude_sos_old))
@@ -201,10 +198,10 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
 
         # relative to the overall amplitude
         
-        dists_from_relative_amplitude = abs(sos_ndvi_values - overall_relative_amplitude)
+        dists_from_relative_amplitude = abs(sos_from_min_ndvi - overall_relative_amplitude)
         idx_relative_amplitude = np.argmin(dists_from_relative_amplitude)
         if idx_relative_amplitude > 0:
-            relative_amplitude_doy_sos = sos_doys[idx_relative_amplitude]
+            relative_amplitude_doy_sos = sos_from_min_doys[idx_relative_amplitude]
         else:
             relative_amplitude_doy_sos = np.nan
 
@@ -217,26 +214,26 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
         relative_amplitude_doy_sos_old = np.nan
 
     # EoS calculations
-    if len(eos_ndvi_values) > 0:
-        eos_min_value = np.min(eos_ndvi_values)
+    if len(eos_to_min_ndvi) > 0:
+        eos_min_value = np.min(eos_to_min_ndvi)
         threshold_eos = eos_min_value + 0.1 * (max_ndvi_value - eos_min_value)
         # Siehe oben!
         # first_of_slope10_eos = eos_doys[np.argmin(np.abs(eos_ndvi_values - threshold_eos))]
 
-        eos_diff = eos_ndvi_values - threshold_eos
+        eos_diff = eos_to_min_ndvi - threshold_eos
         positive_eos_diff = eos_diff[eos_diff < 0]
         if len(positive_eos_diff) > 0:
         # TODO delete this or first_of-slope10_sos
-            first_of_slope10_eos2 = eos_doys[eos_diff < 0][np.argmax(eos_diff[eos_diff < 0])]
+            first_of_slope10_eos2 = eos_to_min_doys[eos_diff < 0][np.argmax(eos_diff[eos_diff < 0])]
         else:
             first_of_slope10_eos2 = np.nan
             print(f'Pixel first_of_slope10_eos2 is nan')
         
-        median_ndvi_eos = np.median(eos_ndvi_values)
-        median_of_slope_eos = eos_doys[np.argmin(np.abs(eos_ndvi_values - median_ndvi_eos))]
+        median_ndvi_eos = np.median(eos_to_min_ndvi)
+        median_of_slope_eos = eos_to_min_doys[np.argmin(np.abs(eos_to_min_ndvi - median_ndvi_eos))]
         
         
-        seasonal_amplitude_doy_eos = eos_doys[np.argmin(np.abs(eos_ndvi_values - seasonal_amplitude))]
+        seasonal_amplitude_doy_eos = eos_to_min_doys[np.argmin(np.abs(eos_to_min_ndvi - eos_seasonal_amplitude))]
         
         # old relative amplitude
         relative_amplitude_eos_old = calculate_relative_amplitude(eos_ndvi_values)
@@ -246,7 +243,7 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
             relative_amplitude_doy_eos_old = np.nan
 
         # relative to the overall amplitude
-        dists_from_relative_amplitude = abs(eos_ndvi_values - overall_relative_amplitude)  
+        dists_from_relative_amplitude = abs(eos_to_min_ndvi - overall_relative_amplitude)  
         idx_relative_amplitude = np.argmin(dists_from_relative_amplitude)
         if idx_relative_amplitude > 0:
             relative_amplitude_doy_eos = eos_doys[idx_relative_amplitude]
@@ -276,7 +273,9 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
         'smooth': SMOOTH,
         'threshold_start': THRESHOLD_,
         'threshold_end': THRESH_END,
-        'seasonal_amplitude': seasonal_amplitude,
+        'amplitude': amplitude,
+        'sos_seasonal_amplitude_ndvi': sos_seasonal_amplitude,
+        'eos_seasonal_amplitude_ndvi': eos_seasonal_amplitude,
         'fine_doys': fine_doys,
         'sos_doys': sos_doys,
         'sos_ndvi_values': sos_ndvi_values,
@@ -284,6 +283,8 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
         'eos_ndvi_values': eos_ndvi_values,
         'base': base, 
         'overall_relative_amplitude': overall_relative_amplitude,
+        'sos_relative_amplitude_ndvi': sos_relative_amplitude,
+        'eos_relative_amplitude_ndvi': eos_relative_amplitude,
 
     }
 
