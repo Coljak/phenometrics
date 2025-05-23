@@ -105,6 +105,10 @@ def filter_to_range_between_minima(fine_doys, fitted_ndvi_values, sos_doys, sos_
 def calculate_relative_amplitude(ndvi_values):
     return np.percentile(ndvi_values, 90) - np.percentile(ndvi_values, 10)
 
+def calculate_relative_amplitude_mean(ndvi_values):
+    ndvi_values = ndvi_values[(ndvi_values < np.percentile(ndvi_values, 90)) & (ndvi_values > np.percentile(ndvi_values, 10))]
+    return ndvi_values.mean()
+
 
 def calculate_sos_eos(fine_doys, fitted_ndvi_values):
     """
@@ -166,6 +170,7 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
     # overall_relative_amplitude = calculate_relative_amplitude(fitted_ndvi_values)
     overall_relative_amplitude = calculate_relative_amplitude(fitted_ndvi_min_to_min)
+    relative_amplitude_mean = calculate_relative_amplitude_mean(fitted_ndvi_min_to_min)
     sos_relative_amplitude = base + .25 * overall_relative_amplitude
     eos_relative_amplitude = base + .15 * overall_relative_amplitude
     
@@ -283,6 +288,7 @@ def calculate_sos_eos(fine_doys, fitted_ndvi_values):
         'eos_ndvi_values': eos_ndvi_values,
         'base': base, 
         'overall_relative_amplitude': overall_relative_amplitude,
+        'relative_amplitude_mean': relative_amplitude_mean,
         'sos_relative_amplitude_ndvi': sos_relative_amplitude,
         'eos_relative_amplitude_ndvi': eos_relative_amplitude,
 
