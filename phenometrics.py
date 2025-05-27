@@ -13,13 +13,14 @@ import numpy as np
 import concurrent.futures
 import rasterio
 from scipy.interpolate import splrep, BSpline
+import warnings
 from sklearn.linear_model import LinearRegression
 from datetime import datetime
 # from rasterio.crs import CRS
 # from affine import Affine
 
 # Constants
-SMOOTH = 0.001
+SMOOTH = 0.005
 THRESHOLD_ = 90 # can be set to None
 THRESH_END = 250
 MIN_DOY_PEAK_SEARCH = 150
